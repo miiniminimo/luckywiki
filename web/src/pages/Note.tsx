@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, NoteFull } from '../api';
 import Markdown from '../Markdown';
 
 export default function NotePage() {
   const { slug = '' } = useParams();
+  const nav = useNavigate();
+  const [edit, setEdit] = useState(false);
+  const [draft, setDraft] = useState<NoteFull | null>(null);
   const [note, setNote] = useState<NoteFull | null>(null);
   const [raw, setRaw] = useState('');
   const [file, setFile] = useState('');
@@ -16,6 +19,7 @@ export default function NotePage() {
       .note(slug)
       .then((r) => {
         setNote(r.note);
+        setDraft(r.note);
         setRaw(r.raw);
         setFile(r.file);
       })
@@ -46,6 +50,62 @@ export default function NotePage() {
           </span>
         ))}
       </p>
+
+      <div className="card row">
+        <button onClick={() => setEdit((v) => !v)}>{edit ? '편집 닫기' : '고치기'}</button>
+        <button
+          onClick={async () => {
+            if (!confirm('이 노트를 휴지통(vault/.trash)으로 옮길까요?')) return;
+            await api.remove(slug);
+            nav('/notes');
+          }}
+        >
+          삭제
+        </button>
+        <div className="spacer" />
+        <span className="meta">수정·삭제는 vault 폴더의 파일에 바로 반영됩니다</span>
+      </div>
+
+      {edit && draft && (
+        <div className="card">
+          <h2>고치기</h2>
+          <label className="meta">제목</label>
+          <input type="text" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+          <label className="meta" style={{ display: 'block', marginTop: 12 }}>한 줄 요약</label>
+          <input type="text" value={draft.summary} onChange={(e) => setDraft({ ...draft, summary: e.target.value })} />
+          <label className="meta" style={{ display: 'block', marginTop: 12 }}>태그 (쉼표로 구분)</label>
+          <input
+            type="text"
+            value={draft.tags.join(', ')}
+            onChange={(e) => setDraft({ ...draft, tags: e.target.value.split(',').map((t) => t.trim()).filter(Boolean) })}
+          />
+          <label className="meta" style={{ display: 'block', marginTop: 12 }}>본문</label>
+          <textarea rows={10} value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} />
+          <div className="row" style={{ marginTop: 14 }}>
+            <button
+              className="primary"
+              onClick={async () => {
+                await api.update(slug, {
+                  title: draft.title,
+                  summary: draft.summary,
+                  tags: draft.tags,
+                  body: draft.body,
+                });
+                const r = await api.note(slug);
+                setNote(r.note);
+                setDraft(r.note);
+                setRaw(r.raw);
+                setEdit(false);
+                setToast('저장했습니다');
+                setTimeout(() => setToast(''), 2000);
+              }}
+            >
+              저장
+            </button>
+            <button onClick={() => { setDraft(note); setEdit(false); }}>취소</button>
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <h2>한 줄 요약</h2>

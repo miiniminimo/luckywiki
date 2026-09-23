@@ -31,8 +31,12 @@ Ollama가 실행 중이면 exaone3.5:2.4b 모델이 실제로 답합니다. 지�
 - 핵심 1: 질문한 내용을 노트로 남기면 다음에 다시 찾을 수 있습니다.
 - 핵심 2: 노트끼리 연결해 두면 관련 주제를 함께 볼 수 있습니다.`;
 
-export function stubAnswer(question: string): string {
-  return CANNED.find((c) => c.match.test(question))?.answer ?? DEFAULT_ANSWER(question);
+export function stubAnswer(question: string, context = ''): string {
+  const base = CANNED.find((c) => c.match.test(question))?.answer ?? DEFAULT_ANSWER(question);
+  if (!context) return base;
+  return `${base}
+
+> 저장해 둔 노트를 참고했습니다. (모의 모드에서는 참고한 노트 제목만 아래에 표시됩니다)`;
 }
 
 export function stubOrganize(question: string, answer: string, candidates: string[]): Organized {

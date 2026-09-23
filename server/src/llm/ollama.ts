@@ -43,14 +43,46 @@ async function chat(prompt: string, system = ANSWER_SYSTEM, json = false): Promi
   return data.message?.content?.trim() ?? '';
 }
 
-/** 질문에 답한다. 모델이 없으면 모의 답변으로 대신한다. */
-export async function ask(question: string): Promise<{ answer: string; stub: boolean }> {
-  if (!(await ping())) return { answer: stubAnswer(question), stub: true };
+export type Turn = { role: 'user' | 'assistant'; content: string };
+
+/**
+ * 질문에 답한다. 모델이 없으면 모의 답변으로 대신한다.
+ * history: 앞선 대화 (이어 묻기), context: 저장된 노트에서 찾은 근거
+ */
+export async function ask(
+  question: string,
+  history: Turn[] = [],
+  context = '',
+): Promise<{ answer: string; stub: boolean }> {
+  if (!(await ping())) return { answer: stubAnswer(question, context), stub: true };
   try {
-    return { answer: await chat(question), stub: false };
+    const system = context ? `${ANSWER_SYSTEM}
+
+${context}` : ANSWER_SYSTEM;
+    return { answer: await chatTurns(question, history, system), stub: false };
   } catch {
-    return { answer: stubAnswer(question), stub: true };
+    return { answer: stubAnswer(question, context), stub: true };
   }
+}
+
+async function chatTurns(question: string, history: Turn[], system: string): Promise<string> {
+  const res = await fetch(`${HOST}/api/chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model: MODEL,
+      stream: false,
+      messages: [
+        { role: 'system', content: system },
+        ...history.slice(-6),
+        { role: 'user', content: question },
+      ],
+    }),
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (!res.ok) throw new Error(`ollama ${res.status}`);
+  const data = (await res.json()) as { message?: { content?: string } };
+  return data.message?.content?.trim() ?? '';
 }
 
 /** 질문·답변을 노트 형태로 정리한다. 후보 목록 밖의 링크는 버린다. */

@@ -72,8 +72,48 @@ const graph = await get('/api/graph');
 check('nodes >= 2', graph.nodes.length >= 2);
 check('edge >= 1', graph.edges.length >= 1);
 
-console.log('7) 노션 내보내기');
-const exp = await post(`/api/export/notion/${s2.slug}`, {});
+console.log('7) 대화 이어가기 · 내 노트 근거')
+const a3 = await post('/api/ask', {
+  question: '그럼 락은 왜 필요해?',
+  history: [
+    { role: 'user', content: a1.question },
+    { role: 'assistant', content: a1.answer },
+  ],
+  useNotes: true,
+});
+check('follow-up answered', a3.answer.length > 20);
+check('used notes reported', Array.isArray(a3.used));
+const found = await get(`/api/search?q=${encodeURIComponent('프로세스')}`);
+check('search finds saved note', found.hits.length >= 1);
+
+console.log('8) 이어 쓰기 · 고치기 · 지우기')
+const ap = await post(`/api/notes/${s1.slug}/append`, {
+  question: '스레드는 언제 써?',
+  summary: '',
+  body: '- 이어 쓴 내용',
+  raw: '원문',
+  tags: ['extra'],
+  links: [],
+});
+check('append ok', ap.appended === true);
+const appended = fs.readFileSync(path.join(VAULT, ap.file), 'utf-8');
+check('append section written', appended.includes('### 추가 ('));
+check('append tag merged', appended.includes('extra'));
+
+const upd = await fetch(BASE + `/api/notes/${s1.slug}`, {
+  method: 'PUT',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ summary: '고친 요약입니다' }),
+}).then((r) => r.json());
+check('update ok', upd.updated === true);
+check('update written', fs.readFileSync(path.join(VAULT, ap.file), 'utf-8').includes('고친 요약입니다'));
+
+const del = await fetch(BASE + `/api/notes/${s2.slug}`, { method: 'DELETE' }).then((r) => r.json());
+check('delete moved to trash', !!del.movedTo && fs.existsSync(del.movedTo));
+check('note gone from list', !(await get('/api/notes')).notes.some((n) => n.slug === s2.slug));
+
+console.log('9) 노션 내보내기');
+const exp = await post(`/api/export/notion/${s1.slug}`, {});
 check('no wikilink in export', !exp.markdown.includes('[['));
 check('no frontmatter in export', !exp.markdown.startsWith('---'));
 
