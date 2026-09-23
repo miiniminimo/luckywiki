@@ -10,9 +10,11 @@
 ## 실행
 ```bash
 pip install fastapi uvicorn httpx
-python -m uvicorn app:app --port 8100
-# http://localhost:8100
+python run.py          # http://localhost:8100
 ```
+
+`python -m uvicorn app:app --port 8100` 으로도 되지만, **반드시 `app.py`가 있는 폴더 안에서** 실행해야 한다.
+다른 위치에서 실행하면 `Could not import module "app"` 오류가 난다. `run.py`는 위치와 상관없이 동작한다.
 
 - 기본은 **mock 응답**이라 API 키 없이 전체 흐름이 돈다(시연용).
 - 화면 아래 "OpenAI 키" 칸에 키를 넣고 `OpenAI(실호출)`을 체크하면 실제 호출. 키는 파일에 저장하지 않는다.
