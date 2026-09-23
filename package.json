@@ -1,0 +1,14 @@
+{
+  "name": "luckywiki",
+  "private": true,
+  "version": "0.1.0",
+  "description": "LLM에게 물어본 것을 자체 마크다운 위키로 남기는 로컬 도구",
+  "scripts": {
+    "install:all": "npm install && npm --prefix server install && npm --prefix web install",
+    "dev": "concurrently -n server,web -c blue,magenta \"npm --prefix server run dev\" \"npm --prefix web run dev\"",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
