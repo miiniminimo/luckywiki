@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LLM 응답 비교 · 발췌</title>
+<style>
+:root { --bg:#f6f7f9; --panel:#fff; --ink:#1f2328; --muted:#6b7280; --line:#e5e7eb; --accent:#4f46e5; --mark:#fde68a; }
+@media (prefers-color-scheme: dark){ :root{ --bg:#14161a; --panel:#1c1f24; --ink:#e9eaee; --muted:#9aa1ad; --line:#2b2f36; --mark:#7c6a12; } }
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font-family:Pretendard,-apple-system,'Segoe UI','Malgun Gothic',sans-serif;line-height:1.6}
+header{display:flex;align-items:center;gap:14px;padding:14px 22px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+h1{font-size:17px;margin:0} .muted{color:var(--muted);font-size:13px}
+main{max-width:1280px;margin:0 auto;padding:20px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+textarea,input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;font:inherit;background:transparent;color:inherit}
+button{font:inherit;padding:8px 15px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:inherit;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button:disabled{opacity:.5;cursor:default}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap} .spacer{flex:1}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
+.resp{display:flex;flex-direction:column;max-height:460px}
+.resp .body{overflow:auto;white-space:pre-wrap;flex:1;padding-right:4px}
+.pill{font-size:12px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.pill.live{color:#15803d;border-color:#86efac} .pill.err{color:#b91c1c;border-color:#fca5a5}
+.exc{border-bottom:1px solid var(--line);padding:12px 0}
+.exc:last-child{border-bottom:0}
+blockquote{margin:6px 0;padding:4px 12px;border-left:3px solid var(--accent);color:var(--ink)}
+mark{background:var(--mark)}
+#pop{position:absolute;display:none;z-index:20}
+.grow{display:flex;gap:8px;align-items:center}
+</style>
+</head>
+<body>
+<header>
+  <h1>LLM 응답 비교 · 발췌</h1>
+  <span class="muted">여러 모델을 동시에 물어보고, 마음에 드는 문장만 드래그해 모읍니다</span>
+  <span class="spacer"></span>
+  <span class="muted" id="status">준비됨</span>
+</header>
+
+<main>
+  <div class="card">
+    <textarea id="q" rows="2" placeholder="질문을 입력하세요">양자컴퓨터를 쉽게 설명해줘.</textarea>
+    <div class="row" style="margin-top:10px">
+      <span id="models" class="grow"></span>
+      <input id="key" type="password" placeholder="OpenAI 키 (실호출 쓸 때만 · 저장 안 함)" style="max-width:280px">
+      <span class="spacer"></span>
+      <button class="primary" id="go">응답 비교</button>
+      <button id="stop" disabled>생성 중지</button>
+      <button id="reset">새 세션</button>
+    </div>
+  </div>
+
+  <div class="cols" id="cards"></div>
+
+  <div class="card">
+    <div class="row">
+      <h2 style="font-size:15px;margin:0">발췌 모음 <span class="muted" id="count">0개</span></h2>
+      <span class="spacer"></span>
+      <button onclick="exportAs('markdown')">Markdown</button>
+      <button onclick="exportAs('json')">JSON</button>
+      <button onclick="exportAs('csv')">CSV</button>
+    </div>
+    <div id="excerpts"><p class="muted">응답에서 문장을 드래그하면 «발췌에 추가» 버튼이 뜹니다.</p></div>
+  </div>
+</main>
+
+<div id="pop"><button class="primary" id="addBtn">발췌에 추가</button></div>
+
+<script>
+let sessionId = null, ctrl = null, picked = [], excerpts = [], sel = null;
+const $ = (s) => document.querySelector(s);
+
+fetch('/api/models').then(r=>r.json()).then(d=>{
+  picked = ['mock-gpt','mock-claude','mock-gemini'];
+  $('#models').innerHTML = d.models.map(m=>`
+    <label class="pill"><input type="checkbox" value="${m.id}" ${picked.includes(m.id)?'checked':''}
+      onchange="toggle(this)"> ${m.provider} · ${m.model}</label>`).join(' ');
+});
+function toggle(el){ picked = el.checked ? [...picked, el.value] : picked.filter(v=>v!==el.value); }
+
+$('#go').onclick = start;
+$('#stop').onclick = () => { ctrl?.abort(); $('#status').textContent='중지됨'; $('#stop').disabled=true; $('#go').disabled=false; };
+$('#reset').onclick = () => { sessionId=null; excerpts=[]; $('#cards').innerHTML=''; render(); $('#status').textContent='준비됨'; };
+
+async function start(){
+  const prompt = $('#q').value.trim();
+  if(!prompt || picked.length===0) return;
+  $('#cards').innerHTML=''; excerpts=[]; render();
+  $('#go').disabled=true; $('#stop').disabled=false; $('#status').textContent='생성 중…';
+  ctrl = new AbortController();
+  const res = await fetch('/api/generate', {method:'POST', headers:{'content-type':'application/json'},
+    body: JSON.stringify({prompt, models:picked, openai_key: $('#key').value.trim()}), signal: ctrl.signal});
+  const reader = res.body.getReader(); const dec = new TextDecoder(); let buf='';
+  while(true){
+    const {value, done} = await reader.read(); if(done) break;
+    buf += dec.decode(value, {stream:true});
+    const parts = buf.split('\n\n'); buf = parts.pop();
+    for(const p of parts){ if(p.startsWith('data: ')) handle(JSON.parse(p.slice(6))); }
+  }
+  $('#go').disabled=false; $('#stop').disabled=true;
+}
+
+function handle(e){
+  if(e.event==='generation_started'){ sessionId = e.session_id; }
+  if(e.event==='model_started'){
+    const d = document.createElement('div');
+    d.className='card resp'; d.id='r'+e.response_id;
+    d.innerHTML = `<div class="row"><b>${e.provider}</b><span class="muted">${e.model}</span>
+      <span class="spacer"></span><span class="pill live" id="s${e.response_id}">생성 중</span></div>
+      <div class="body" data-rid="${e.response_id}" data-provider="${e.provider}" data-model="${e.model}"></div>
+      <div class="row" style="margin-top:8px"><button onclick="copyAll(${e.response_id})">전체 복사</button>
+      <button onclick="addWhole(${e.response_id})">전체 발췌</button></div>`;
+    $('#cards').appendChild(d);
+  }
+  if(e.event==='token'){ const b=document.querySelector(`[data-rid="${e.response_id}"]`); if(b) b.textContent += e.text; }
+  if(e.event==='model_completed'){ const s=$('#s'+e.response_id); s.className='pill'; s.textContent=`완료 ${e.latency_ms}ms`; }
+  if(e.event==='model_failed'){ const s=$('#s'+e.response_id); s.className='pill err'; s.textContent='오류';
+    document.querySelector(`[data-rid="${e.response_id}"]`).textContent = e.error; }
+  if(e.event==='generation_completed'){ $('#status').textContent='완료'; }
+}
+
+/* 드래그 선택 → 발췌 */
+document.addEventListener('mouseup', () => {
+  const s = window.getSelection();
+  const text = s.toString().trim();
+  const body = s.anchorNode?.parentElement?.closest('.body');
+  if(!text || !body){ $('#pop').style.display='none'; sel=null; return; }
+  const full = body.textContent;
+  const start = full.indexOf(text);          // 데모: 첫 위치 기준 (앞뒤 문맥을 함께 저장해 구분)
+  sel = { text, body, start, end: start+text.length };
+  const r = s.getRangeAt(0).getBoundingClientRect();
+  const pop = $('#pop');
+  pop.style.display='block';
+  pop.style.left = (window.scrollX + r.left) + 'px';
+  pop.style.top = (window.scrollY + r.bottom + 6) + 'px';
+});
+
+$('#addBtn').onclick = async () => {
+  if(!sel || !sessionId) return;
+  const full = sel.body.textContent;
+  const payload = {
+    session_id: sessionId, response_id: Number(sel.body.dataset.rid),
+    provider: sel.body.dataset.provider, model: sel.body.dataset.model,
+    selected_text: sel.text, start_offset: sel.start, end_offset: sel.end,
+    context_before: full.slice(Math.max(0, sel.start-60), sel.start),
+    context_after: full.slice(sel.end, sel.end+60), note:'', tags:[]
+  };
+  const r = await (await fetch('/api/excerpts',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)})).json();
+  excerpts.push({...payload, id:r.id});
+  $('#pop').style.display='none'; window.getSelection().removeAllRanges();
+  render();
+};
+
+function addWhole(rid){
+  const body = document.querySelector(`[data-rid="${rid}"]`);
+  sel = { text: body.textContent.trim(), body, start:0, end: body.textContent.length };
+  $('#addBtn').onclick();
+}
+function copyAll(rid){ navigator.clipboard.writeText(document.querySelector(`[data-rid="${rid}"]`).textContent); $('#status').textContent='복사했습니다'; }
+
+function render(){
+  $('#count').textContent = excerpts.length + '개';
+  $('#excerpts').innerHTML = excerpts.length===0
+    ? '<p class="muted">응답에서 문장을 드래그하면 «발췌에 추가» 버튼이 뜹니다.</p>'
+    : excerpts.map((x,i)=>`
+      <div class="exc">
+        <div class="row"><b>${x.provider}</b><span class="muted">${x.model}</span><span class="spacer"></span>
+          <button onclick="move(${i},-1)">↑</button><button onclick="move(${i},1)">↓</button>
+          <button onclick="del(${i})">삭제</button></div>
+        <blockquote>${esc(x.selected_text)}</blockquote>
+        <input placeholder="메모" value="${esc(x.note||'')}" onchange="note(${i}, this.value)">
+        <input placeholder="태그 (쉼표)" value="${esc((x.tags||[]).join?.(',')||x.tags||'')}" onchange="tag(${i}, this.value)" style="margin-top:6px">
+      </div>`).join('');
+}
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function note(i,v){ excerpts[i].note=v; await fetch('/api/excerpts/'+excerpts[i].id,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({note:v})}); }
+async function tag(i,v){ const tags=v.split(',').map(t=>t.trim()).filter(Boolean); excerpts[i].tags=tags; await fetch('/api/excerpts/'+excerpts[i].id,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({tags})}); }
+async function del(i){ await fetch('/api/excerpts/'+excerpts[i].id,{method:'DELETE'}); excerpts.splice(i,1); render(); }
+async function move(i,d){ const j=i+d; if(j<0||j>=excerpts.length) return; [excerpts[i],excerpts[j]]=[excerpts[j],excerpts[i]];
+  for(const [k,x] of excerpts.entries()) await fetch('/api/excerpts/'+x.id,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({sort_order:k+1})});
+  render(); }
+function exportAs(fmt){ if(!sessionId) return; window.open(`/api/sessions/${sessionId}/export?format=${fmt}`,'_blank'); }
+</script>
+</body>
+</html>
