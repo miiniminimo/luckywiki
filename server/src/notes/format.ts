@@ -64,7 +64,9 @@ export function toMarkdown(note: Note): string {
   ].join('\n');
 }
 
-export function parseMarkdown(text: string, fallbackSlug: string): Note {
+export function parseMarkdown(input: string, fallbackSlug: string): Note {
+  // 윈도우에서 저장·체크아웃된 파일(CRLF)도 읽을 수 있게 줄바꿈을 맞춘다
+  const text = input.split('\r\n').join('\n');
   const m = text.match(/^---\n([\s\S]*?)\n---\n?/);
   const fmText = m ? m[1] : '';
   const body = m ? text.slice(m[0].length) : text;

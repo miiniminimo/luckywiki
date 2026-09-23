@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, Preview } from '../api';
+import Markdown from '../Markdown';
 
 const SAMPLES = ['프로세스랑 스레드 차이가 뭐야?', 'RAG가 뭐야?'];
 
@@ -37,8 +38,10 @@ export default function Ask() {
     setBusy('preview');
     try {
       const p = await api.preview(question, answer);
-      setPreview(p);
-      setPicked(p.links);
+      // 같은 제목(자기 자신)은 연결 후보에서 뺀다
+      const others = p.candidates.filter((c) => c !== p.title);
+      setPreview({ ...p, candidates: others });
+      setPicked(p.links.filter((l) => others.includes(l)));
     } catch (e) {
       note(String(e));
     } finally {
@@ -102,7 +105,7 @@ export default function Ask() {
       {answer && (
         <div className="card">
           <h2>답변</h2>
-          <div className="answer">{answer}</div>
+          <Markdown text={answer} />
           <div className="row" style={{ marginTop: 16 }}>
             <b>이 내용을 위키에 저장할까요?</b>
             <div className="spacer" />

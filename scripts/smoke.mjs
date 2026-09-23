@@ -29,7 +29,6 @@ async function post(url, body) {
 }
 const get = async (url) => (await fetch(BASE + url)).json();
 
-const before = fs.existsSync(VAULT) ? fs.readdirSync(VAULT).filter((f) => f.endsWith('.md')).length : 0;
 
 console.log('1) health');
 const health = await get('/api/health');
@@ -64,7 +63,7 @@ check('wikilink written', md2.includes(`[[${p1.title}]]`));
 
 console.log('5) 목록·검색');
 const list = await get('/api/notes');
-check('list has 2+ notes', list.notes.length >= before + 2);
+check('list has 2+ notes', list.notes.length >= 2); // 같은 날 같은 제목이면 덮어쓰므로 총 개수로 센다
 const filtered = await get(`/api/notes?q=${encodeURIComponent(p1.tags[0] ?? '')}`);
 check('filter works', filtered.notes.length >= 1);
 

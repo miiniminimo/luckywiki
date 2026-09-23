@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, NoteFull } from '../api';
+import Markdown from '../Markdown';
 
 export default function NotePage() {
   const { slug = '' } = useParams();
@@ -48,19 +49,19 @@ export default function NotePage() {
 
       <div className="card">
         <h2>한 줄 요약</h2>
-        <div>{note.summary}</div>
+        <Markdown text={note.summary} />
       </div>
 
       <div className="card md">
         <h2>정리</h2>
-        <div className="answer">{note.body}</div>
+        <Markdown text={note.body} />
       </div>
 
       {note.links.length > 0 && (
         <div className="card">
           <h2>연결</h2>
           {note.links.map((l) => (
-            <div key={l}>[[{l}]]</div>
+            <Markdown key={l} text={`- [[${l}]]`} />
           ))}
         </div>
       )}
@@ -69,8 +70,8 @@ export default function NotePage() {
         <h2>원문 답변</h2>
         <details>
           <summary className="meta">모델이 처음 답한 원문 보기</summary>
-          <div className="answer" style={{ marginTop: 10 }}>
-            {note.raw}
+          <div style={{ marginTop: 10 }}>
+            <Markdown text={note.raw} />
           </div>
         </details>
       </div>
